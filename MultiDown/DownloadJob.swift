@@ -53,8 +53,9 @@ final class DownloadJob: ObservableObject, Identifiable {
         self.url = url
         self.connections = max(1, min(16, connections))
         let fallback = url.lastPathComponent.isEmpty ? "download.bin" : url.lastPathComponent
-        self.name = name?.isEmpty == false ? (name ?? fallback) : fallback
-        self.fileURL = DownloadJob.uniqueFileURL(named: self.name)
+        let resolvedName: String = (name?.isEmpty == false) ? (name ?? fallback) : fallback
+        self.name = resolvedName
+        self.fileURL = DownloadJob.uniqueFileURL(named: resolvedName)
     }
 
     deinit {
