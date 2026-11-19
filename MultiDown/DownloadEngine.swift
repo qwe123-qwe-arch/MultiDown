@@ -1,0 +1,134 @@
+import Foundation
+
+/// 负责真正的分片下载：每个分片一条 HTTP Range 请求，写进同一个文件的对应偏移。
+/// 所有 delegate 回调都在同一个串行队列上执行（URLSession 在 delegateQueue=nil 时默认串行），
+/// 因此 segments 的读写不需要额外加锁。
+final class DownloadEngine: NSObject, URLSessionDataDelegate {
+
+    struct Segment {
+        var start: Int64
+        var end: Int64
+        var received: Int64 = 0
+        var handle: FileHandle? = nil
+
+        var length: Int64 {
+            if end == Int64.max { return Int64.max }
+            return end >= start ? end - start + 1 : 0
+        }
+        var isFinished: Bool { received >= length }
+    }
+
+    private let url: URL
+    private let fileURL: URL
+    private var segments: [Segment]
+    private let useRange: Bool
+    private var session: URLSession?
+    private var pending = 0
+    private var cancelled = false
+    private var finished = false
+
+    var onProgress: ((Int64) -> Void)?
+    var onFinish: ((Error?) -> Void)?
+
+    init(url: URL, fileURL: URL, segments: [Segment], useRange: Bool) {
+        self.url = url
+        self.fileURL = fileURL
+        self.segments = segments
+        self.useRange = useRange
+        super.init()
+    }
+
+    var snapshot: [Segment] { segments }
+
+    func start() {
+        let config = URLSessionConfiguration.default
+        config.httpMaximumConnectionsPerHost = max(1, segments.count)
+        config.timeoutIntervalForRequest = 30
+        config.waitsForConnectivity = true
+        config.allowsCellularAccess = true
+        let session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        self.session = session
+
+        for index in segments.indices where !segments[index].isFinished {
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 30
+            if useRange {
+                let from = segments[index].start + segments[index].received
+                request.setValue("bytes=\(from)-\(segments[index].end)", forHTTPHeaderField: "Range")
+            }
+            let task = session.dataTask(with: request)
+            task.taskDescription = String(index)
+            pending += 1
+            task.resume()
+        }
+
+        if pending == 0 {
+            finish(nil)
+        }
+    }
+
+    /// 暂停/取消：保留已写入的字节偏移，方便恢复时从断点续传。
+    func cancel() {
+        cancelled = true
+        session?.invalidateAndCancel()
+        session = nil
+        // 句柄交给 dealloc / finish 关闭：这里直接 close 会和 delegate 队列上的写入竞争。
+    }
+
+    private func finish(_ error: Error?) {
+        if finished { return }
+        finished = true
+        for index in segments.indices {
+            try? segments[index].handle?.close()
+            segments[index].handle = nil
+        }
+        session?.finishTasksAndInvalidate()
+        session = nil
+        let callback = onFinish
+        DispatchQueue.main.async { callback?(error) }
+    }
+
+    // MARK: - URLSessionDataDelegate
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        if cancelled { return }
+        guard let description = dataTask.taskDescription,
+              let index = Int(description),
+              index < segments.count else { return }
+
+        if segments[index].handle == nil {
+            segments[index].handle = try? FileHandle(forWritingTo: fileURL)
+        }
+        guard let handle = segments[index].handle else { return }
+
+        let offset = segments[index].start + segments[index].received
+        do {
+            try handle.seek(toOffset: UInt64(offset))
+            try handle.write(contentsOf: data)
+        } catch {
+            finish(error)
+            return
+        }
+
+        segments[index].received += Int64(data.count)
+        var receivedAll: Int64 = 0
+        for segment in segments { receivedAll += segment.received }
+        onProgress?(receivedAll)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if cancelled || finished { return }
+
+        if let error = error {
+            let nsError = error as NSError
+            if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled { return }
+            finish(error)
+            return
+        }
+
+        pending = max(0, pending - 1)
+        if pending == 0 {
+            finish(nil)
+        }
+    }
+}
