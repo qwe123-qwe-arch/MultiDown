@@ -31,13 +31,13 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             -derivedDataPath build 2>&1 | tee -a build.log
 
-      - name: Diagnostics
+      - name: Collect error log on failure
         if: failure()
         run: |
-          echo '### build.log tail' >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -n 200 build.log >> $GITHUB_STEP_SUMMARY || true
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -n -i -E "error|warning: " build.log | head -n 200 > build-error.log || true
+          echo "" >> build-error.log
+          echo "---- tail ----" >> build-error.log
+          tail -n 200 build.log >> build-error.log || true
 
       - name: Package IPA
         run: |
@@ -52,3 +52,11 @@ jobs:
           tag_name: build-${{ github.run_number }}
           name: MultiDown build-${{ github.run_number }}
           files: MultiDown-unsigned.ipa
+
+      - name: Upload error log to release
+        if: failure()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: log-${{ github.run_number }}
+          name: MultiDown error log ${{ github.run_number }}
+          files: build-error.log
