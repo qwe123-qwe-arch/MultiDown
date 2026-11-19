@@ -15,11 +15,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Show Xcode
-        run: xcodebuild -version
+        run: xcodebuild -version | tee -a build.log
 
       - name: Build unsigned app
         run: |
           set -o pipefail
+          xcodebuild -list -project MultiDown.xcodeproj 2>&1 | tee -a build.log
           xcodebuild -project MultiDown.xcodeproj \
             -scheme MultiDown \
             -sdk iphoneos \
@@ -28,7 +29,15 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            -derivedDataPath build
+            -derivedDataPath build 2>&1 | tee -a build.log
+
+      - name: Diagnostics
+        if: failure()
+        run: |
+          echo '### build.log tail' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -n 200 build.log >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Package IPA
         run: |
