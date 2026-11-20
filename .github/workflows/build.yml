@@ -16,13 +16,15 @@ jobs:
 
       - name: Prepare app icon
         run: |
-          python3 -m pip install --user --quiet pillow
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --quiet --upgrade pip
+          .venv/bin/python -m pip install --quiet pillow
           curl -fsSL --retry 3 --max-time 120 -o icon-src.png "https://aka.doubaocdn.com/s/3zaNKsyx1P" || true
           if [ -s icon-src.png ]; then
-            python3 tools/prepare_icon.py icon-src.png MultiDown/Assets.xcassets/AppIcon.appiconset
+            .venv/bin/python tools/prepare_icon.py icon-src.png MultiDown/Assets.xcassets/AppIcon.appiconset
           else
             echo "fallback to vector icon"
-            python3 tools/make_icon.py MultiDown/Assets.xcassets/AppIcon.appiconset
+            .venv/bin/python tools/make_icon.py MultiDown/Assets.xcassets/AppIcon.appiconset
           fi
           ls -lh MultiDown/Assets.xcassets/AppIcon.appiconset
 
