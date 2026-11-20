@@ -62,18 +62,28 @@ jobs:
           ls -lh MultiDown-unsigned.ipa app-icon.png
 
       - name: Upload IPA to release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: build-${{ github.run_number }}
-          name: MultiDown build-${{ github.run_number }}
-          files: |
-            MultiDown-unsigned.ipa
-            app-icon.png
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="build-${{ github.run_number }}"
+          for i in 1 2 3 4; do
+            if gh release create "$TAG" MultiDown-unsigned.ipa app-icon.png --title "MultiDown $TAG" --notes "unsigned ipa"; then
+              exit 0
+            fi
+            echo "release attempt $i failed, retrying..."
+            sleep 15
+          done
+          exit 1
 
       - name: Upload error log to release
         if: failure()
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: log-${{ github.run_number }}
-          name: MultiDown error log ${{ github.run_number }}
-          files: build-error.log
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="log-${{ github.run_number }}"
+          for i in 1 2 3; do
+            if gh release create "$TAG" build-error.log --title "$TAG" --notes "build log"; then
+              exit 0
+            fi
+            sleep 10
+          done
