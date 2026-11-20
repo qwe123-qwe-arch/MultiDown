@@ -14,10 +14,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Generate app icon
+      - name: Prepare app icon
         run: |
           python3 -m pip install --user --quiet pillow
-          python3 tools/make_icon.py MultiDown/Assets.xcassets/AppIcon.appiconset
+          curl -fsSL --retry 3 --max-time 120 -o icon-src.png "https://aka.doubaocdn.com/s/3zaNKsyx1P" || true
+          if [ -s icon-src.png ]; then
+            python3 tools/prepare_icon.py icon-src.png MultiDown/Assets.xcassets/AppIcon.appiconset
+          else
+            echo "fallback to vector icon"
+            python3 tools/make_icon.py MultiDown/Assets.xcassets/AppIcon.appiconset
+          fi
           ls -lh MultiDown/Assets.xcassets/AppIcon.appiconset
 
       - name: Show Xcode
@@ -50,14 +56,17 @@ jobs:
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/MultiDown.app Payload/
           zip -q -r MultiDown-unsigned.ipa Payload
-          ls -lh MultiDown-unsigned.ipa
+          cp MultiDown/Assets.xcassets/AppIcon.appiconset/icon-1024.png app-icon.png
+          ls -lh MultiDown-unsigned.ipa app-icon.png
 
       - name: Upload IPA to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
           name: MultiDown build-${{ github.run_number }}
-          files: MultiDown-unsigned.ipa
+          files: |
+            MultiDown-unsigned.ipa
+            app-icon.png
 
       - name: Upload error log to release
         if: failure()
