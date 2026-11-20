@@ -22,6 +22,7 @@ final class DownloadEngine: NSObject, URLSessionDataDelegate {
     private let fileURL: URL
     private var segments: [Segment]
     private let useRange: Bool
+    private let headers: [String: String]
     private var session: URLSession?
     private var pending = 0
     private var cancelled = false
@@ -32,11 +33,12 @@ final class DownloadEngine: NSObject, URLSessionDataDelegate {
     var onProgress: ((Int64) -> Void)?
     var onFinish: ((Error?) -> Void)?
 
-    init(url: URL, fileURL: URL, segments: [Segment], useRange: Bool) {
+    init(url: URL, fileURL: URL, segments: [Segment], useRange: Bool, headers: [String: String] = [:]) {
         self.url = url
         self.fileURL = fileURL
         self.segments = segments
         self.useRange = useRange
+        self.headers = headers
         super.init()
     }
 
@@ -63,6 +65,7 @@ final class DownloadEngine: NSObject, URLSessionDataDelegate {
         for index in segments.indices where !segments[index].isFinished {
             var request = URLRequest(url: url)
             request.timeoutInterval = 30
+            for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
             if useRange {
                 let from = segments[index].start + segments[index].received
                 request.setValue("bytes=\(from)-\(segments[index].end)", forHTTPHeaderField: "Range")

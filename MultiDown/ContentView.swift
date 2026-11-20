@@ -4,6 +4,7 @@ struct ContentView: View {
 
     @EnvironmentObject private var store: DownloadStore
     @State private var showAdd = false
+    @State private var showParse = false
 
     var body: some View {
         NavigationStack {
@@ -27,15 +28,26 @@ struct ContentView: View {
                         .disabled(store.jobs.allSatisfy { $0.state != .completed })
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showAdd = true
-                    } label: {
-                        Image(systemName: "plus")
+                    HStack(spacing: 14) {
+                        Button {
+                            showParse = true
+                        } label: {
+                            Image(systemName: "wand.and.stars")
+                        }
+                        Button {
+                            showAdd = true
+                        } label: {
+                            Image(systemName: "plus")
+                        }
                     }
                 }
             }
             .sheet(isPresented: $showAdd) {
                 AddDownloadView()
+                    .environmentObject(store)
+            }
+            .sheet(isPresented: $showParse) {
+                ParseView()
                     .environmentObject(store)
             }
         }
@@ -48,7 +60,7 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
             Text("还没有下载任务")
                 .font(.title3.weight(.semibold))
-            Text("点右上角 + 添加链接，最多 512 线程分片下载")
+            Text("点右上角 ✨ 粘贴分享链接自动解析，或 + 直接填直链")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

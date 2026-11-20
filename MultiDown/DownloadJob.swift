@@ -34,6 +34,7 @@ final class DownloadJob: ObservableObject, Identifiable {
     let id = UUID()
     let url: URL
     let connections: Int
+    let extraHeaders: [String: String]
 
     @Published var name: String
     @Published var state: DownloadState = .idle
@@ -49,9 +50,10 @@ final class DownloadJob: ObservableObject, Identifiable {
     private var lastBytes: Int64 = 0
     private var lastTime = Date()
 
-    init(url: URL, name: String? = nil, connections: Int = 8) {
+    init(url: URL, name: String? = nil, connections: Int = 8, headers: [String: String] = [:]) {
         self.url = url
         self.connections = max(1, min(512, connections))
+        self.extraHeaders = headers
         let fallback = url.lastPathComponent.isEmpty ? "download.bin" : url.lastPathComponent
         let resolvedName: String = (name?.isEmpty == false) ? (name ?? fallback) : fallback
         self.name = resolvedName
@@ -118,6 +120,7 @@ final class DownloadJob: ObservableObject, Identifiable {
         request.httpMethod = "HEAD"
         request.timeoutInterval = 20
         request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+        for (key, value) in extraHeaders { request.setValue(value, forHTTPHeaderField: key) }
 
         URLSession.shared.dataTask(with: request) { data, response, error in
             guard let http = response as? HTTPURLResponse else {
@@ -202,7 +205,7 @@ final class DownloadJob: ObservableObject, Identifiable {
             DownloadEngine.Segment(start: $0.start, end: $0.end, received: $0.received)
         }
         segments = cleanSegments
-        let engine = DownloadEngine(url: url, fileURL: fileURL, segments: cleanSegments, useRange: useRange)
+        let engine = DownloadEngine(url: url, fileURL: fileURL, segments: cleanSegments, useRange: useRange, headers: extraHeaders)
         self.engine = engine
 
         engine.onProgress = { [weak self] receivedAll in

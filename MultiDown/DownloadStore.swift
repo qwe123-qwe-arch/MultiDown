@@ -7,13 +7,21 @@ final class DownloadStore: ObservableObject {
     @Published var jobs: [DownloadJob] = []
 
     @discardableResult
+    func add(media: MediaItem, connections: Int = 8) -> DownloadJob {
+        let job = DownloadJob(url: media.url, name: media.title, connections: connections, headers: media.headers)
+        jobs.insert(job, at: 0)
+        job.start()
+        return job
+    }
+
+    @discardableResult
     func add(urlString: String, name: String? = nil, connections: Int = 8) -> DownloadJob? {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https", url.host != nil else {
             return nil
         }
-        let job = DownloadJob(url: url, name: name, connections: connections)
+        let job = DownloadJob(url: url, name: name, connections: connections, headers: [:])
         jobs.insert(job, at: 0)
         job.start()
         return job
