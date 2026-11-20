@@ -31,7 +31,7 @@ struct AddDownloadView: View {
                 }
 
                 Section {
-                    Stepper(value: $connections, in: 1...16) {
+                    Stepper(value: $connections, in: 1...512) {
                         HStack {
                             Text("连接数")
                             Spacer()
@@ -39,12 +39,20 @@ struct AddDownloadView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                    HStack(spacing: 8) {
+                        ForEach([8, 64, 128, 512], id: \.self) { count in
+                            Button("\(count)") { connections = count }
+                                .buttonStyle(.bordered)
+                                .tint(connections == count ? .accentColor : .secondary)
+                        }
+                        Spacer()
+                    }
                     TextField("留空则使用服务器文件名", text: $fileName)
                         .autocorrectionDisabled()
                 } header: {
                     Text("分片")
                 } footer: {
-                    Text("连接数越多越快，但部分服务器限制单 IP 并发，建议 4–8。不支持 Range 的服务器会自动退化为单连接。")
+                    Text("最多 512 线程分片并发。连接数越多越快，但多数服务器会限制单 IP 并发，超出后返回 429/503；不支持 Range 的服务器会自动退化为单连接。")
                 }
 
                 Section {
@@ -83,9 +91,4 @@ struct AddDownloadView: View {
             showsError = true
         }
     }
-}
-
-#Preview {
-    AddDownloadView()
-        .environmentObject(DownloadStore())
 }

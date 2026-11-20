@@ -2,14 +2,14 @@ import Foundation
 
 /// 负责真正的分片下载：每个分片一条 HTTP Range 请求，写进同一个文件的对应偏移。
 /// 所有 delegate 回调都在同一个串行队列上执行（URLSession 在 delegateQueue=nil 时默认串行），
-/// 因此 segments 的读写不需要额外加锁。
+/// 因此 segments 的读写和文件句柄的 seek/write 都不需要额外加锁。
+/// 为了支持 512 条并发，这里只用一个共享 FileHandle（iOS 单进程 fd 上限约 256，绝不能每片一个句柄）。
 final class DownloadEngine: NSObject, URLSessionDataDelegate {
 
     struct Segment {
         var start: Int64
         var end: Int64
         var received: Int64 = 0
-        var handle: FileHandle? = nil
 
         var length: Int64 {
             if end == Int64.max { return Int64.max }
@@ -26,6 +26,8 @@ final class DownloadEngine: NSObject, URLSessionDataDelegate {
     private var pending = 0
     private var cancelled = false
     private var finished = false
+    private var handle: FileHandle?
+    private var receivedTotal: Int64 = 0
 
     var onProgress: ((Int64) -> Void)?
     var onFinish: ((Error?) -> Void)?
@@ -41,11 +43,20 @@ final class DownloadEngine: NSObject, URLSessionDataDelegate {
     var snapshot: [Segment] { segments }
 
     func start() {
+        receivedTotal = segments.reduce(0) { $0 + $1.received }
+        handle = (try? FileHandle(forWritingTo: fileURL)) ?? nil
+        if useRange && handle == nil {
+            finish(DownloadEngine.makeError("打不开目标文件"))
+            return
+        }
+
         let config = URLSessionConfiguration.default
-        config.httpMaximumConnectionsPerHost = max(1, segments.count)
+        config.httpMaximumConnectionsPerHost = max(1, min(512, segments.count))
         config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 3600
         config.waitsForConnectivity = true
         config.allowsCellularAccess = true
+        config.httpShouldUsePipelining = true
         let session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
         self.session = session
 
@@ -72,34 +83,40 @@ final class DownloadEngine: NSObject, URLSessionDataDelegate {
         cancelled = true
         session?.invalidateAndCancel()
         session = nil
-        // 句柄交给 dealloc / finish 关闭：这里直接 close 会和 delegate 队列上的写入竞争。
+        // 句柄在 didBecomeInvalidWithError / finish 里关闭，避免和 delegate 队列上的写入竞争。
+    }
+
+    private func closeHandle() {
+        try? handle?.close()
+        handle = nil
     }
 
     private func finish(_ error: Error?) {
         if finished { return }
         finished = true
-        for index in segments.indices {
-            try? segments[index].handle?.close()
-            segments[index].handle = nil
-        }
+        closeHandle()
         session?.finishTasksAndInvalidate()
         session = nil
         let callback = onFinish
         DispatchQueue.main.async { callback?(error) }
     }
 
+    private static func makeError(_ message: String) -> NSError {
+        NSError(domain: "MultiDown", code: -1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+
     // MARK: - URLSessionDataDelegate
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        if cancelled { return }
+        if cancelled || finished { return }
         guard let description = dataTask.taskDescription,
               let index = Int(description),
               index < segments.count else { return }
 
-        if segments[index].handle == nil {
-            segments[index].handle = try? FileHandle(forWritingTo: fileURL)
+        if handle == nil {
+            handle = try? FileHandle(forWritingTo: fileURL)
         }
-        guard let handle = segments[index].handle else { return }
+        guard let handle = handle else { return }
 
         let offset = segments[index].start + segments[index].received
         do {
@@ -111,9 +128,8 @@ final class DownloadEngine: NSObject, URLSessionDataDelegate {
         }
 
         segments[index].received += Int64(data.count)
-        var receivedAll: Int64 = 0
-        for segment in segments { receivedAll += segment.received }
-        onProgress?(receivedAll)
+        receivedTotal += Int64(data.count)
+        onProgress?(receivedTotal)
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
@@ -130,5 +146,9 @@ final class DownloadEngine: NSObject, URLSessionDataDelegate {
         if pending == 0 {
             finish(nil)
         }
+    }
+
+    func urlSession(_ session: URLSession, didBecomeInvalidWithError error: Error?) {
+        closeHandle()
     }
 }

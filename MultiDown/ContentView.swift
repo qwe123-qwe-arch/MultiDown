@@ -48,7 +48,7 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
             Text("还没有下载任务")
                 .font(.title3.weight(.semibold))
-            Text("点右上角 + 添加链接，最多 16 个连接分片下载")
+            Text("点右上角 + 添加链接，最多 512 线程分片下载")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -177,9 +177,4 @@ enum Formatters {
         let value = formatter.string(fromByteCount: Int64(max(0, bytesPerSecond)))
         return value + "/s"
     }
-}
-
-#Preview {
-    ContentView()
-        .environmentObject(DownloadStore())
 }

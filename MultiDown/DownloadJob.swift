@@ -51,7 +51,7 @@ final class DownloadJob: ObservableObject, Identifiable {
 
     init(url: URL, name: String? = nil, connections: Int = 8) {
         self.url = url
-        self.connections = max(1, min(16, connections))
+        self.connections = max(1, min(512, connections))
         let fallback = url.lastPathComponent.isEmpty ? "download.bin" : url.lastPathComponent
         let resolvedName: String = (name?.isEmpty == false) ? (name ?? fallback) : fallback
         self.name = resolvedName
@@ -170,7 +170,8 @@ final class DownloadJob: ObservableObject, Identifiable {
 
         let effectiveConnections: Int
         if size > 0, supportsRange {
-            effectiveConnections = min(connections, max(1, Int(size / (512 * 1024))))
+            // 每片至少 64 KB，避免小文件被切成一堆无效请求；上限 512 条并发。
+            effectiveConnections = min(connections, max(1, Int(size / (64 * 1024))))
         } else {
             effectiveConnections = 1
         }
